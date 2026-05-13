@@ -1,0 +1,13 @@
+name: printing-press-hermes
+version: 1.0.0
+description: Agent-driven CLI generator for APIs — Go binary + Hermes skill loop
+author: Shubhan Yenuganti
+
+provides_tools: []
+provides_hooks: []
+
+requires_env:
+  - name: HERMES_PRESS_BINARY
+    description: "Path to the hermes-press binary (optional — defaults to 'hermes-press' on PATH)"
+    secret: false
+    # Not required: plugin loads fine without it; skill falls back to PATH lookup
