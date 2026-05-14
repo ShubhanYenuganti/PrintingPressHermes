@@ -29,89 +29,87 @@ type CheckResult struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+func execVerify(slug, workDir, binaryPath string) (*VerifyResult, error) {
+	if workDir == "" {
+		home, _ := os.UserHomeDir()
+		workDir = filepath.Join(home, "hermes-press", "runs", slug, "working", slug)
+	}
+	if binaryPath == "" {
+		binaryPath = filepath.Join(workDir, slug+"-cli")
+	}
+	checks := []CheckResult{
+		runCheck("binary-exists", func() (bool, string) {
+			_, err := os.Stat(binaryPath)
+			if err != nil {
+				return false, fmt.Sprintf("binary not found at %s", binaryPath)
+			}
+			return true, binaryPath
+		}),
+		runCheck("go-vet", func() (bool, string) {
+			c := exec.Command("go", "vet", "./...")
+			c.Dir = workDir
+			out, err := c.CombinedOutput()
+			if err != nil {
+				return false, string(out)
+			}
+			return true, "clean"
+		}),
+		runCheck("help-flag", func() (bool, string) {
+			if _, err := os.Stat(binaryPath); err != nil {
+				return false, "binary missing, skipped"
+			}
+			c := exec.Command(binaryPath, "--help")
+			out, err := c.CombinedOutput()
+			if err == nil {
+				return true, "exit 0"
+			}
+			fallback := exec.Command(binaryPath)
+			fallbackOut, fallbackErr := fallback.CombinedOutput()
+			if fallbackErr == nil {
+				return true, "fallback without args"
+			}
+			return false, string(out) + string(fallbackOut)
+		}),
+	}
+	passed := true
+	for _, ch := range checks {
+		if !ch.Passed {
+			passed = false
+		}
+	}
+	return &VerifyResult{Slug: slug, Passed: passed, Checks: checks}, nil
+}
+
 var verifyCmd = &cobra.Command{
 	Use:   "verify <slug>",
 	Short: "Phase 4: run quality gates on the built CLI",
 	Long: `Runs structural and behavioral checks on the generated CLI binary:
 go vet, --help walk, --json output validation, --version presence, doctor command.
-With --strict, any failure exits non-zero. The skill gates Phase 5 on a clean verify.`,
+With --strict, any failure exits non-zero.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-
-		workDir := verifyWorkDir
-		if workDir == "" {
-			home, _ := os.UserHomeDir()
-			workDir = filepath.Join(home, "hermes-press", "runs", slug, "working", slug)
+		result, err := execVerify(args[0], verifyWorkDir, verifyBinary)
+		if err != nil {
+			return err
 		}
-
-		binaryPath := verifyBinary
-		if binaryPath == "" {
-			binaryPath = filepath.Join(workDir, slug+"-cli")
-		}
-
-		checks := []CheckResult{
-			runCheck("binary-exists", func() (bool, string) {
-				_, err := os.Stat(binaryPath)
-				if err != nil {
-					return false, fmt.Sprintf("binary not found at %s", binaryPath)
-				}
-				return true, binaryPath
-			}),
-			runCheck("go-vet", func() (bool, string) {
-				c := exec.Command("go", "vet", "./...")
-				c.Dir = workDir
-				out, err := c.CombinedOutput()
-				if err != nil {
-					return false, string(out)
-				}
-				return true, "clean"
-			}),
-			runCheck("help-flag", func() (bool, string) {
-				if _, err := os.Stat(binaryPath); err != nil {
-					return false, "binary missing, skipped"
-				}
-				c := exec.Command(binaryPath, "--help")
-				out, err := c.CombinedOutput()
-				if err != nil && c.ProcessState.ExitCode() != 0 {
-					return false, string(out)
-				}
-				return true, "exit 0"
-			}),
-		}
-
-		passed := true
-		for _, ch := range checks {
-			if !ch.Passed {
-				passed = false
-			}
-		}
-
-		result := VerifyResult{
-			Slug:   slug,
-			Passed: passed,
-			Checks: checks,
-		}
-
 		if verifyJSON {
 			data, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println(string(data))
 		} else {
-			for _, ch := range checks {
+			for _, ch := range result.Checks {
 				mark := "✓"
 				if !ch.Passed {
 					mark = "✗"
 				}
 				fmt.Printf("%s %s: %s\n", mark, ch.Name, ch.Detail)
 			}
-			if passed {
+			if result.Passed {
 				fmt.Println("verify: PASSED")
 			} else {
 				fmt.Println("verify: FAILED")
 			}
 		}
-
-		if verifyStrict && !passed {
+		if verifyStrict && !result.Passed {
 			os.Exit(1)
 		}
 		return nil

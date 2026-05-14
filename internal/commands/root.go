@@ -11,11 +11,21 @@ const Version = "1.0.0"
 
 var rootCmd = &cobra.Command{
 	Use:   "hermes-press",
-	Short: "Hermes Printing Press — agent-driven CLI generator for APIs",
-	Long: `hermes-press is the Go binary half of the Hermes Printing Press plugin.
-Hermes skill files drive it through research, generation, verification, and
-publication phases. The binary handles state, scoring, and deterministic checks;
-the skill files handle the agentic loop and user interaction.`,
+	Short: "Printing Press — agent-driven CLI generator for APIs",
+	Long: `hermes-press is a CLI tool that scaffolds, verifies, and publishes
+production-ready Go CLIs for any API. It can be used standalone or driven by
+the printing-press-hermes Hermes plugin.
+
+Standalone workflow (no Hermes required):
+  hermes-press run <api>               — full end-to-end run
+  hermes-press run <api> --until generate   — scaffold only (then write code)
+  hermes-press run <api> --from verify      — verify + publish after writing code
+
+Individual phases:
+  hermes-press research <api>          — phase 1: write research.json
+  hermes-press generate <slug>         — phase 2: scaffold Go module
+  hermes-press verify   <slug>         — phase 4: quality gates
+  hermes-press publish  <slug>         — phase 5: promote to library`,
 }
 
 func Execute() {
@@ -27,6 +37,7 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(researchCmd)
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(verifyCmd)

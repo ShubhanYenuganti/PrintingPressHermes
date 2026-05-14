@@ -23,56 +23,56 @@ type GenerateResult struct {
 	Next    string `json:"next"`
 }
 
+func execGenerate(slug, runDir string, dryRun bool) (*GenerateResult, error) {
+	if runDir == "" {
+		home, _ := os.UserHomeDir()
+		runDir = filepath.Join(home, "hermes-press", "runs", slug)
+	}
+	researchPath := filepath.Join(runDir, "research.json")
+	if _, err := os.Stat(researchPath); err != nil {
+		return nil, fmt.Errorf("research.json not found at %s — run 'hermes-press research %s' first", researchPath, slug)
+	}
+	workDir := filepath.Join(runDir, "working", slug)
+	if !dryRun {
+		if err := os.MkdirAll(filepath.Join(workDir, "cmd", slug+"-cli"), 0755); err != nil {
+			return nil, err
+		}
+		if err := os.MkdirAll(filepath.Join(workDir, "internal"), 0755); err != nil {
+			return nil, err
+		}
+		placeholder := "// scaffold: implement your CLI here\npackage main\n\nfunc main() {}\n"
+		entryPath := filepath.Join(workDir, "cmd", slug+"-cli", "main.go")
+		if err := os.WriteFile(entryPath, []byte(placeholder), 0644); err != nil {
+			return nil, err
+		}
+	}
+	return &GenerateResult{
+		Slug:    slug,
+		RunDir:  runDir,
+		WorkDir: workDir,
+		Status:  "scaffolded",
+		Next:    "implement the CLI in the working directory, then run verify",
+	}, nil
+}
+
 var generateCmd = &cobra.Command{
 	Use:   "generate <slug>",
-	Short: "Phase 2: scaffold Go CLI + MCP server from research.json",
+	Short: "Phase 2: scaffold Go CLI module from research.json",
 	Long: `Reads research.json from the run directory, writes the Go module scaffold
-(cmd/, internal/, go.mod, README.md) into <run_dir>/working/<slug>/. The skill
-builds this with go build and runs quality gates before Phase 3.`,
+(cmd/, internal/, go.mod) into <run_dir>/working/<slug>/. Implement the CLI there,
+then run verify.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-
-		runDir := generateRunDir
-		if runDir == "" {
-			home, _ := os.UserHomeDir()
-			runDir = filepath.Join(home, "hermes-press", "runs", slug)
+		result, err := execGenerate(args[0], generateRunDir, generateDryRun)
+		if err != nil {
+			return err
 		}
-
-		researchPath := filepath.Join(runDir, "research.json")
-		if _, err := os.Stat(researchPath); err != nil {
-			return fmt.Errorf("research.json not found at %s — run 'hermes-press research %s' first", researchPath, slug)
-		}
-
-		workDir := filepath.Join(runDir, "working", slug)
-		if !generateDryRun {
-			if err := os.MkdirAll(filepath.Join(workDir, "cmd", slug+"-cli"), 0755); err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Join(workDir, "internal"), 0755); err != nil {
-				return err
-			}
-			placeholder := "// scaffold: skill will fill this in during Phase 3\npackage main\n\nfunc main() {}\n"
-			entryPath := filepath.Join(workDir, "cmd", slug+"-cli", "main.go")
-			if err := os.WriteFile(entryPath, []byte(placeholder), 0644); err != nil {
-				return err
-			}
-		}
-
-		result := GenerateResult{
-			Slug:    slug,
-			RunDir:  runDir,
-			WorkDir: workDir,
-			Status:  "scaffolded",
-			Next:    "skill should build with 'go build ./...' then proceed to Phase 3",
-		}
-
 		if generateJSON {
 			data, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println(string(data))
 		} else {
-			fmt.Printf("generate: %s\n", slug)
-			fmt.Printf("work_dir: %s\n", workDir)
+			fmt.Printf("generate: %s\n", result.Slug)
+			fmt.Printf("work_dir: %s\n", result.WorkDir)
 			fmt.Printf("status:   %s\n", result.Status)
 			if generateDryRun {
 				fmt.Println("[dry-run: no files written]")

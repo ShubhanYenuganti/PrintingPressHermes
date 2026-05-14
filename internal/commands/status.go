@@ -14,11 +14,11 @@ var (
 )
 
 type StatusResult struct {
-	BinaryVersion string      `json:"binary_version"`
-	LibraryDir    string      `json:"library_dir"`
-	RunsDir       string      `json:"runs_dir"`
-	Published     []string    `json:"published"`
-	ActiveRuns    []string    `json:"active_runs"`
+	BinaryVersion string   `json:"binary_version"`
+	LibraryDir    string   `json:"library_dir"`
+	RunsDir       string   `json:"runs_dir"`
+	Published     []string `json:"published"`
+	ActiveRuns    []string `json:"active_runs"`
 }
 
 var statusCmd = &cobra.Command{

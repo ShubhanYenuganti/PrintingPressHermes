@@ -1,17 +1,15 @@
-# Printing Press for Hermes
+# Printing Press
 
-Generate a ship-ready CLI for any API. The Go binary handles state and deterministic
-checks; Hermes skill files drive the research → generate → build → verify → publish
-loop.
+Generate ship-ready CLIs for any API. `hermes-press` is the standalone runner,
+and the Hermes plugin is an optional thin adapter for agentic use inside Hermes.
 
-Two parts, one workflow:
+Two paths, one workflow:
 
 ```
-hermes-press (Go binary)   +   printing-press-hermes (Hermes plugin)
-       ↑                                    ↑
- runs quality gates,             agent loop, research,
- manages run state,              writing, decisions
- scaffolds Go modules
+hermes-press (standalone binary)  +  printing-press-hermes (Hermes plugin)
+       ↑                                     ↑
+ runs research, scaffold,           drives the writing step inside Hermes,
+ verify, publish                    delegates to the binary for everything else
 ```
 
 ---
@@ -32,6 +30,27 @@ Verify:
 hermes-press version
 # 1.0.0
 ```
+
+### Standalone usage, no Hermes required
+
+The binary can run the workflow directly from a normal shell. Typical flow:
+
+```bash
+# Start a new run and stop after scaffolding so you can implement the CLI
+hermes-press run Notion --until generate --json
+
+# Resume after you have written the CLI in the working directory
+hermes-press run Notion --from verify
+
+# Or let it run through all phases when the working tree is already prepared
+hermes-press run Notion --auto
+```
+
+Useful flags:
+- `--spec <path>` or `--url <url>` to feed research input
+- `--run-dir <path>` to override the default `~/hermes-press/runs/<slug>`
+- `--library <path>` to override the publish destination
+- `--json` for machine-readable output
 
 ### 2. Install the Hermes plugin
 
@@ -121,11 +140,12 @@ hermes-press status --json
 ## Binary reference
 
 ```
-hermes-press research <slug> [--spec path] [--url url] [--out dir] [--json]
-hermes-press generate <slug> [--run-dir dir] [--dry-run] [--json]
-hermes-press verify   <slug> [--work-dir dir] [--binary path] [--strict] [--json]
-hermes-press publish  <slug> [--run-dir dir] [--library dir] [--dry-run] [--json]
-hermes-press status          [--json]
+hermes-press run      <api> [--spec path] [--url url] [--run-dir dir] [--library dir] [--until phase] [--from phase] [--auto] [--json]
+hermes-press research  <slug> [--spec path] [--url url] [--out dir] [--json]
+hermes-press generate  <slug> [--run-dir dir] [--dry-run] [--json]
+hermes-press verify    <slug> [--work-dir dir] [--binary path] [--strict] [--json]
+hermes-press publish   <slug> [--run-dir dir] [--library dir] [--dry-run] [--json]
+hermes-press status            [--json]
 hermes-press version
 ```
 

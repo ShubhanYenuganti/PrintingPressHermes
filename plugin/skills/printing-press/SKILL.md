@@ -17,115 +17,60 @@ metadata:
 
 # printing-press
 
-Generate the best useful CLI for an API. The skill drives the `hermes-press` Go
-binary through a fixed phase loop; the binary handles state and deterministic
-checks while the skill handles research, writing, and decisions.
+Hermes adapter for the Printing Press CLI generator. The heavy lifting lives in
+the `hermes-press` standalone binary; this skill drives the AI writing step
+(Phase 3) and delegates everything else to the binary.
 
-## Sibling skills
-
-- `skill_view("printing-press-hermes:printing-press-reprint")` — reprint an existing CLI under a newer version of the press.
+Sibling: `skill_view("printing-press-hermes:printing-press-reprint")` — upgrade an existing CLI.
 
 ## When to use
 
 User says any of:
-- "print a CLI for <API>"
+- "print a CLI for \<API\>"
 - `/printing-press <API or URL>`
-- "generate a CLI for <API>"
+- "generate a CLI for \<API\>"
 
 ## Pre-flight: verify binary
 
-Before Phase 0, verify the binary is installed and meets the minimum version.
-
 ```bash
-# Resolve binary — prefer explicit env var, fall back to PATH
 HERMES_PRESS="${HERMES_PRESS_BINARY:-hermes-press}"
-
 if ! command -v "$HERMES_PRESS" >/dev/null 2>&1; then
-  echo "[setup-error] hermes-press binary not found."
-  echo ""
-  if command -v go >/dev/null 2>&1; then
-    echo "Install it:"
-    echo "  go install github.com/shubhany/printing-press-hermes/cmd/hermes-press@latest"
-  else
-    echo "Go is also missing. Install Go from https://go.dev/dl/, then:"
-    echo "  go install github.com/shubhany/printing-press-hermes/cmd/hermes-press@latest"
-  fi
-  echo ""
-  echo "Then re-run /printing-press."
+  echo "[setup-error] hermes-press not found."
+  echo "Install: go install github.com/shubhany/printing-press-hermes/cmd/hermes-press@latest"
   exit 1
 fi
-
-BINARY_VERSION="$("$HERMES_PRESS" version 2>/dev/null)"
-echo "hermes-press $BINARY_VERSION ready"
+"$HERMES_PRESS" version
 ```
 
-If the binary check fails, stop and show the user the install instructions. Do not
-proceed to Phase 0.
+If the binary check fails, stop and show the install instructions. Do not proceed.
 
-## Phase 0 — Resolve
+## Phases 1–2: Research and scaffold (binary)
 
-Determine the canonical API slug and run directory.
+Run phases 1 and 2 via the standalone binary. This requires no Hermes state.
 
 ```bash
 API_SLUG="$(echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
-RUN_DIR="$HOME/hermes-press/runs/$API_SLUG"
-echo "slug: $API_SLUG"
-echo "run_dir: $RUN_DIR"
-```
-
-Check `hermes-press status --json` for an existing run:
-
-```bash
-"$HERMES_PRESS" status --json
-```
-
-If a prior run exists for this slug, ask the user: resume it or start fresh?
-
-## Phase 1 — Research
-
-Call `hermes-press research` to create the run directory and write `research.json`.
-Pass `--spec` or `--url` if the user provided one; otherwise let the binary infer.
-
-```bash
-"$HERMES_PRESS" research "$API_SLUG" --json
+"$HERMES_PRESS" run "$API_SLUG" --until generate --json
 # With spec:  --spec path/to/openapi.yaml
 # With URL:   --url https://example.com/api-docs
 ```
 
-Read `$RUN_DIR/research.json`. This is the source of truth for all subsequent phases.
-If `status` is not `ready`, stop and report the error.
+Parse the JSON. Check `status` is `stopped-after-generate`. Read `work_dir`.
+If a prior run exists for this slug, ask the user: resume or start fresh?
 
-**Research questions to answer before Phase 2 (do your own web research here):**
+**Research questions to answer before Phase 3 (do your own web research here):**
 
 1. What is the API's canonical name and authentication method?
-2. Who are the 2–3 top CLI competitors? What features do they have?
-3. What is a compelling compound command that only makes sense with local data
-   (e.g. a cross-resource insight that no raw API call can return in one shot)?
+2. Who are the 2–3 top CLI competitors? What do they do well?
+3. What compound command would only make sense with local data (cross-resource
+   insight no raw API call returns in one shot)?
 4. What is the natural SQLite schema for this API's primary resources?
 
-Write answers as notes into `research.json` before proceeding. The binary uses them
-in Phase 2.
+## Phase 3: Build the CLI (agent writes code)
 
-## Phase 2 — Generate scaffold
+Implement the full CLI in `$WORK_DIR`. Checklist:
 
-```bash
-"$HERMES_PRESS" generate "$API_SLUG" --run-dir "$RUN_DIR" --json
-```
-
-Verify output: `work_dir` in the JSON must exist and contain `cmd/<slug>-cli/main.go`.
-
-```bash
-ls "$RUN_DIR/working/$API_SLUG/cmd/$API_SLUG-cli/"
-```
-
-If the scaffold is missing, re-run generate. Do not proceed to Phase 3 with a broken scaffold.
-
-## Phase 3 — Build the CLI
-
-This is the main writing phase. You will implement the full CLI in
-`$RUN_DIR/working/$API_SLUG/`. Follow this checklist:
-
-- [ ] `cmd/<slug>-cli/main.go` — Cobra root, version flag, `--json`, `--no-input`, `--compact`
+- [ ] `cmd/<slug>-cli/main.go` — Cobra root, `--version`, `--json`, `--no-input`, `--compact`
 - [ ] `internal/client/` — typed HTTP client with retry and rate-limit handling
 - [ ] `internal/store/` — SQLite store using `modernc.org/sqlite`, FTS5 full-text search
 - [ ] Resource commands: `sync`, `list`, `get`, `search` for each primary resource
@@ -133,44 +78,21 @@ This is the main writing phase. You will implement the full CLI in
 - [ ] `doctor` command — checks auth, connectivity, DB integrity
 - [ ] `go.mod` / `go.sum` — tidy after writing
 
-Build and fix until clean:
+Build until clean:
 
 ```bash
-cd "$RUN_DIR/working/$API_SLUG" && go build ./... 2>&1
+cd "$WORK_DIR" && go build ./... 2>&1
 go vet ./... 2>&1
 ```
 
-## Phase 4 — Verify
+## Phases 4–5: Verify and publish (binary)
 
 ```bash
-"$HERMES_PRESS" verify "$API_SLUG" \
-  --work-dir "$RUN_DIR/working/$API_SLUG" \
-  --strict --json
+"$HERMES_PRESS" run "$API_SLUG" --from verify --json
 ```
 
-Parse the JSON. If `passed` is `false`, fix each failed check inline and re-run.
-Do not proceed to Phase 5 until `passed` is `true`.
-
-Quick smoke checks to run manually alongside verify:
-
-```bash
-BINARY="$RUN_DIR/working/$API_SLUG/$API_SLUG-cli"
-go build -o "$BINARY" "$RUN_DIR/working/$API_SLUG/cmd/$API_SLUG-cli"
-"$BINARY" --help
-"$BINARY" --version
-"$BINARY" list --json 2>&1 | head -5
-"$BINARY" doctor
-```
-
-## Phase 5 — Publish
-
-Only call publish when Phase 4 verify has `passed: true`.
-
-```bash
-"$HERMES_PRESS" publish "$API_SLUG" --run-dir "$RUN_DIR" --json
-```
-
-Confirm `status: published` and `dest` path in the JSON output.
+Parse the JSON. If `phases.verify` is `failed`, fix each failed check and re-run.
+Confirm `phases.publish` is `done` and `dest` path exists.
 
 ## Completion
 
@@ -182,15 +104,14 @@ Tell the user:
 
 ## Pitfalls
 
-- **Binary not found**: the Go binary must be installed separately from the plugin. Show install instructions.
-- **Phase 3 build fails**: run `go mod tidy` before `go build`. Missing `go.sum` is the most common cause.
-- **verify --strict fails on go-vet**: do not skip — fix the vet errors. They are almost always real bugs.
-- **Wrong slug**: slugs are lower-kebab. "Notion API" → `notion-api`. Match exactly across all phases.
-- **Reusing a stale run**: if `research.json` exists from a prior run, check the timestamp. If it's old, re-run Phase 1.
+- **Binary not found**: install separately with `go install`. Show instructions.
+- **Phase 3 build fails**: run `go mod tidy` before `go build`.
+- **verify --strict fails on go-vet**: fix the vet errors — do not skip them.
+- **Wrong slug**: lower-kebab only. "Notion API" → `notion-api`.
 
 ## Verification
 
-The run is complete when all are true:
+Complete when all are true:
 - `hermes-press verify --strict` exits 0
 - `hermes-press publish` reports `status: published`
 - `$HOME/hermes-press/library/<slug>/` exists and contains a buildable Go module
